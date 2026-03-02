@@ -2,8 +2,18 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = "https://umiqvigdibyvieslahcb.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtaXF2aWdkaWJ5dmllc2xhaGNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNzg4NTgsImV4cCI6MjA3MjY1NDg1OH0.vVMDK6NOzXeRIlZ8TPGVOH0H4OxH3xLuSUGaHWHw9NM";
+// Read values from Vite environment variables so the endpoint can be swapped
+// between the real Supabase host and a proxy (e.g. JioBase) without touching
+// the code. Ensure these are set in `.env` or in your deployment provider.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+if (!SUPABASE_URL) {
+  throw new Error('Missing environment variable VITE_SUPABASE_URL');
+}
+if (!SUPABASE_PUBLISHABLE_KEY) {
+  throw new Error('Missing environment variable VITE_SUPABASE_ANON_KEY');
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
