@@ -16,22 +16,8 @@ import { Calendar, MapPin, Users, Plus, Clock, CheckCircle2, Star } from "lucide
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-interface Event {
-  id: string;
-  title: string;
-  description: string | null;
-  event_type: string;
-  location: string | null;
-  start_time: string;
-  end_time: string | null;
-  max_attendees: number | null;
-  created_by: string;
-  profiles: {
-    full_name: string;
-  };
-  rsvp_count?: number;
-  user_rsvp?: string | null;
-}
+// Import Event from EventService instead
+import { EventService, type Event } from "@/services/EventService";
 
 const Events = () => {
   const { user } = useAuth();
@@ -39,7 +25,7 @@ const Events = () => {
   const [showCreateDrawer, setShowCreateDrawer] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const isMobile = useIsMobile();
-  
+
   const [newEvent, setNewEvent] = useState({
     title: "",
     description: "",
@@ -58,61 +44,13 @@ const Events = () => {
 
   const fetchEvents = async () => {
     if (!user) return;
-
-    // First get events
-    const { data: eventsData, error: eventsError } = await supabase
-      .from("campus_events")
-      .select("*")
-      .gte("start_time", new Date().toISOString())
-      .order("start_time", { ascending: true });
-
-    if (eventsError) {
+    try {
+      const eventsWithData = await EventService.fetchUpcomingEvents(user.id);
+      setEvents(eventsWithData);
+    } catch (error) {
+      console.error("Failed to fetch events:", error);
       toast.error("Failed to load events");
-      return;
     }
-
-    if (!eventsData || eventsData.length === 0) {
-      setEvents([]);
-      return;
-    }
-
-    // Get creator profiles
-    const creatorIds = eventsData.map(e => e.created_by);
-    const { data: profilesData } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", creatorIds);
-
-    // Get RSVP counts and user's RSVP status
-    const eventsWithData = await Promise.all(
-      eventsData.map(async (event) => {
-        const { count } = await supabase
-          .from("event_rsvps")
-          .select("*", { count: "exact", head: true })
-          .eq("event_id", event.id)
-          .eq("status", "going");
-
-        const { data: userRsvp } = await supabase
-          .from("event_rsvps")
-          .select("status")
-          .eq("event_id", event.id)
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        const profile = profilesData?.find(p => p.id === event.created_by);
-
-        return {
-          ...event,
-          profiles: {
-            full_name: profile?.full_name || "Unknown",
-          },
-          rsvp_count: count || 0,
-          user_rsvp: userRsvp?.status || null,
-        };
-      })
-    );
-
-    setEvents(eventsWithData);
   };
 
   const createEvent = async () => {
@@ -123,49 +61,37 @@ const Events = () => {
       return;
     }
 
-    const { error } = await supabase.from("campus_events").insert({
-      ...newEvent,
-      max_attendees: newEvent.max_attendees ? parseInt(newEvent.max_attendees) : null,
-      created_by: user.id,
-    });
-
-    if (error) {
+    try {
+      await EventService.createEvent(newEvent, user.id);
+      toast.success("Event created successfully!");
+      setShowCreateDrawer(false);
+      setNewEvent({
+        title: "",
+        description: "",
+        event_type: "social",
+        location: "",
+        start_time: "",
+        end_time: "",
+        max_attendees: "",
+      });
+      fetchEvents();
+    } catch (error) {
+      console.error("Failed to create event:", error);
       toast.error("Failed to create event");
-      return;
     }
-
-    toast.success("Event created successfully!");
-    setShowCreateDrawer(false);
-    setNewEvent({
-      title: "",
-      description: "",
-      event_type: "social",
-      location: "",
-      start_time: "",
-      end_time: "",
-      max_attendees: "",
-    });
-    fetchEvents();
   };
 
   const handleRSVP = async (eventId: string, status: string) => {
     if (!user) return;
 
-    const { error } = await supabase
-      .from("event_rsvps")
-      .upsert({
-        event_id: eventId,
-        user_id: user.id,
-        status,
-      });
-
-    if (error) {
+    try {
+      await EventService.handleRSVP(eventId, user.id, status);
+      toast.success(status === "going" ? "You're attending!" : "RSVP updated");
+      fetchEvents();
+    } catch (error) {
+      console.error("Failed to update RSVP:", error);
       toast.error("Failed to update RSVP");
-      return;
     }
-
-    toast.success(status === "going" ? "You're attending!" : "RSVP updated");
-    fetchEvents();
   };
 
   const getEventTypeBadge = (type: string) => {
@@ -324,95 +250,95 @@ const Events = () => {
             </TabsList>
           </div>
 
-        <TabsContent value={filter} className="mt-0">
-          <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
-            {filteredEvents.length === 0 ? (
-              <Card className="md:col-span-2">
-                <CardContent className="p-8 sm:p-12 text-center text-muted-foreground">
-                  <Calendar className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-muted-foreground/50" />
-                  <p className="text-base sm:text-lg">No events found</p>
-                  <p className="text-sm mt-2">Be the first to create an event!</p>
-                </CardContent>
-              </Card>
-            ) : (
-              filteredEvents.map((event) => (
-                <Card key={event.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                  <CardHeader className="pb-2 sm:pb-4">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="text-base sm:text-xl truncate">{event.title}</CardTitle>
-                        <CardDescription className="mt-0.5 text-xs sm:text-sm">
-                          by {event.profiles.full_name}
-                        </CardDescription>
-                      </div>
-                      <Badge variant={getEventTypeBadge(event.event_type)} className="text-xs shrink-0">
-                        {event.event_type}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2 sm:space-y-3 pt-0">
-                    {event.description && (
-                      <p className="text-xs sm:text-sm line-clamp-2">{event.description}</p>
-                    )}
-                    <div className="space-y-1.5 text-xs sm:text-sm text-muted-foreground">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
-                        <span className="truncate">{format(new Date(event.start_time), "PPp")}</span>
-                      </div>
-                      {event.location && (
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
-                          <span className="truncate">{event.location}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
-                        {event.rsvp_count} attending
-                        {event.max_attendees && ` / ${event.max_attendees} max`}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 pt-1 sm:pt-2">
-                      {event.user_rsvp === "going" ? (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="flex-1 h-8 text-xs sm:text-sm"
-                          onClick={() => handleRSVP(event.id, "not_going")}
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                          Attending
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1 h-8 text-xs sm:text-sm"
-                          onClick={() => handleRSVP(event.id, "going")}
-                        >
-                          Attend
-                        </Button>
-                      )}
-                      <Button
-                        variant={event.user_rsvp === "interested" ? "secondary" : "outline"}
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() =>
-                          handleRSVP(
-                            event.id,
-                            event.user_rsvp === "interested" ? "not_going" : "interested"
-                          )
-                        }
-                      >
-                        <Star className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+          <TabsContent value={filter} className="mt-0">
+            <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+              {filteredEvents.length === 0 ? (
+                <Card className="md:col-span-2">
+                  <CardContent className="p-8 sm:p-12 text-center text-muted-foreground">
+                    <Calendar className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-muted-foreground/50" />
+                    <p className="text-base sm:text-lg">No events found</p>
+                    <p className="text-sm mt-2">Be the first to create an event!</p>
                   </CardContent>
                 </Card>
-              ))
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
+              ) : (
+                filteredEvents.map((event) => (
+                  <Card key={event.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-2 sm:pb-4">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <CardTitle className="text-base sm:text-xl truncate">{event.title}</CardTitle>
+                          <CardDescription className="mt-0.5 text-xs sm:text-sm">
+                            by {event.profiles.full_name}
+                          </CardDescription>
+                        </div>
+                        <Badge variant={getEventTypeBadge(event.event_type)} className="text-xs shrink-0">
+                          {event.event_type}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-2 sm:space-y-3 pt-0">
+                      {event.description && (
+                        <p className="text-xs sm:text-sm line-clamp-2">{event.description}</p>
+                      )}
+                      <div className="space-y-1.5 text-xs sm:text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                          <span className="truncate">{format(new Date(event.start_time), "PPp")}</span>
+                        </div>
+                        {event.location && (
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                            <span className="truncate">{event.location}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                          {event.rsvp_count} attending
+                          {event.max_attendees && ` / ${event.max_attendees} max`}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1 sm:pt-2">
+                        {event.user_rsvp === "going" ? (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="flex-1 h-8 text-xs sm:text-sm"
+                            onClick={() => handleRSVP(event.id, "not_going")}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                            Attending
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 h-8 text-xs sm:text-sm"
+                            onClick={() => handleRSVP(event.id, "going")}
+                          >
+                            Attend
+                          </Button>
+                        )}
+                        <Button
+                          variant={event.user_rsvp === "interested" ? "secondary" : "outline"}
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() =>
+                            handleRSVP(
+                              event.id,
+                              event.user_rsvp === "interested" ? "not_going" : "interested"
+                            )
+                          }
+                        >
+                          <Star className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </PullToRefresh>
   );
