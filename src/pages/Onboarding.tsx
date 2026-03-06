@@ -63,7 +63,7 @@ const Onboarding = () => {
             if (error) throw error;
 
             // Refresh profile state in auth context
-            refreshProfile?.();
+            await refreshProfile?.();
 
             toast({
                 title: "Welcome to Bazinga! 🎉",

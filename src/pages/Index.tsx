@@ -7,25 +7,7 @@ import { getRandomQuote } from '@/utils/quotes';
 import { useState } from 'react';
 
 const Index = () => {
-  const { user, loading } = useAuth();
   const navigate = useNavigate();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="relative">
-          <div className="h-16 w-16 rounded-full border-t-4 border-b-4 border-primary animate-spin"></div>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="h-8 w-8 rounded-full bg-primary/20 blur-xl"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Navigate to="/auth" replace />;
-  }
 
   const vibeQuote = getRandomQuote('motivational');
 
